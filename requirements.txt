@@ -1,0 +1,5 @@
+streamlit>=1.40
+yfinance>=0.2.40
+feedparser>=6.0
+python-dotenv>=1.0
+finance-datareader>=0.9.96

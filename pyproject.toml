@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "news-stock-dashboard"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "streamlit>=1.40",
+  "yfinance>=0.2.40",
+  "feedparser>=6.0",
+  "python-dotenv>=1.0",
+  "finance-datareader>=0.9.96",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+desktop = ["pywebview>=5.3", "pyinstaller>=6.0"]
+
+[project.scripts]
+news-stock-radar = "desktop:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+py-modules = ["desktop"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
