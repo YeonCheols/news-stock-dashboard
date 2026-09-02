@@ -33,8 +33,8 @@ def get_news(symbol: str, market: str) -> tuple[list[NewsArticle], str | None]:
                 continue
             seen.add(url)
             published = None
-            if entry.get("published_parsed"):
-                published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+            if published_parsed := entry.get("published_parsed"):
+                published = datetime(*published_parsed[:6], tzinfo=timezone.utc)
             source = entry.get("source", {}).get("title", "Google News")
             articles.append(NewsArticle(title, source, url, published, _clean(entry.get("summary", "")), [symbol]))
         oldest = datetime.min.replace(tzinfo=timezone.utc)
