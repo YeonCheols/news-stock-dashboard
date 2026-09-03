@@ -1,10 +1,10 @@
 import sqlite3
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import shutil
 
-from src.models import MarketSnapshot, NewsArticle
+from src.models import CollectionStatus, MarketSnapshot, NewsArticle
 
 
 
@@ -29,7 +29,9 @@ def _connect() -> sqlite3.Connection:
     legacy_path = Path(__file__).resolve().parents[1] / "data" / "radar.db"
     if not DB_PATH.exists() and legacy_path.exists() and legacy_path != DB_PATH:
         shutil.copy2(legacy_path, DB_PATH)
-    connection = sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(DB_PATH, timeout=5)
+    connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute("PRAGMA journal_mode = WAL")
     connection.execute("CREATE TABLE IF NOT EXISTS favorites (symbol TEXT PRIMARY KEY, market TEXT NOT NULL)")
     connection.execute(
         "CREATE TABLE IF NOT EXISTS articles (url TEXT PRIMARY KEY, title TEXT NOT NULL, source TEXT, "
@@ -42,6 +44,11 @@ def _connect() -> sqlite3.Connection:
     connection.execute(
         "CREATE TABLE IF NOT EXISTS instruments (symbol TEXT NOT NULL, market TEXT NOT NULL, name TEXT NOT NULL, "
         "updated_at TEXT NOT NULL, PRIMARY KEY(symbol, market))"
+    )
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS collection_statuses (source TEXT NOT NULL, symbol TEXT NOT NULL, market TEXT NOT NULL, "
+        "status TEXT NOT NULL, last_attempt_at TEXT NOT NULL, last_success_at TEXT, last_error TEXT, "
+        "PRIMARY KEY(source, symbol, market))"
     )
     connection.commit()
     return connection
@@ -71,6 +78,15 @@ def save_articles(symbol: str, articles: list[NewsArticle]) -> None:
             [(a.url, a.title, a.source, a.published_at.isoformat() if a.published_at else None, a.summary, symbol.upper()) for a in articles],
         )
         connection.commit()
+
+
+def cleanup_old_articles(retention_days: int) -> int:
+    """Remove dated articles older than the retention period and keep undated entries."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    with _connect() as connection:
+        cursor = connection.execute("DELETE FROM articles WHERE published_at IS NOT NULL AND published_at < ?", (cutoff,))
+        connection.commit()
+        return cursor.rowcount
 
 
 def save_market_snapshot(symbol: str, market: str, snapshot: MarketSnapshot) -> None:
@@ -103,6 +119,38 @@ def load_saved_articles(symbol: str) -> list[NewsArticle]:
             (symbol.upper(),),
         ).fetchall()
     return [NewsArticle(title, source or "알 수 없음", url, datetime.fromisoformat(published) if published else None, summary or "", [symbol]) for title, source, url, published, summary in rows]
+
+
+def record_collection_status(source: str, symbol: str, market: str, status: str, error: str | None = None) -> None:
+    """Record the last collection attempt without losing the last successful time."""
+    attempted_at = datetime.now(timezone.utc).isoformat()
+    successful_at = attempted_at if status == "ok" else None
+    with _connect() as connection:
+        connection.execute(
+            "INSERT INTO collection_statuses(source, symbol, market, status, last_attempt_at, last_success_at, last_error) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(source, symbol, market) DO UPDATE SET "
+            "status = excluded.status, last_attempt_at = excluded.last_attempt_at, "
+            "last_success_at = COALESCE(excluded.last_success_at, collection_statuses.last_success_at), "
+            "last_error = excluded.last_error",
+            (source, symbol.upper(), market, status, attempted_at, successful_at, error),
+        )
+        connection.commit()
+
+
+def load_collection_status(source: str, symbol: str, market: str) -> CollectionStatus | None:
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT source, symbol, market, status, last_attempt_at, last_success_at, last_error "
+            "FROM collection_statuses WHERE source = ? AND symbol = ? AND market = ?",
+            (source, symbol.upper(), market),
+        ).fetchone()
+    if not row:
+        return None
+    return CollectionStatus(
+        row[0], row[1], row[2], row[3], datetime.fromisoformat(row[4]),
+        datetime.fromisoformat(row[5]) if row[5] else None, row[6],
+    )
 
 
 def get_instrument_name(symbol: str, market: str) -> str | None:

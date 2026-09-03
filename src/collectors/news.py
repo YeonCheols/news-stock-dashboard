@@ -5,6 +5,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from src.models import NewsArticle
+from src.collectors.retry import run_with_retries
+from src.config import DATA_REQUEST_TIMEOUT_SECONDS
 
 
 def _sample(symbol: str) -> list[NewsArticle]:
@@ -22,8 +24,11 @@ def get_news(symbol: str, market: str) -> tuple[list[NewsArticle], str | None]:
         query = f"{symbol} stock" if market == "US" else f"{symbol} 주식"
         rss_url = "https://news.google.com/rss/search?" + urlencode({"q": query, "hl": "ko", "gl": "KR", "ceid": "KR:ko"})
         request = Request(rss_url, headers={"User-Agent": "Mozilla/5.0 news-stock-dashboard/0.1"})
-        with urlopen(request, timeout=10) as response:
-            feed = feedparser.parse(response.read())
+        def fetch_rss() -> bytes:
+            with urlopen(request, timeout=DATA_REQUEST_TIMEOUT_SECONDS) as response:
+                return response.read()
+
+        feed = feedparser.parse(run_with_retries(fetch_rss))
         if not feed.entries:
             raise ValueError("RSS 응답에 뉴스가 없습니다")
         articles, seen = [], set()

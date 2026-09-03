@@ -31,3 +31,14 @@ class NewsArticle:
     published_at: datetime | None = None
     summary: str = ""
     keywords: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CollectionStatus:
+    source: str
+    symbol: str
+    market: str
+    status: str
+    last_attempt_at: datetime
+    last_success_at: datetime | None = None
+    last_error: str | None = None

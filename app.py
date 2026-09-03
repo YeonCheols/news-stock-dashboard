@@ -4,10 +4,17 @@ from datetime import date, datetime, timedelta, timezone
 
 import streamlit as st
 
-from src.collectors.market import get_market_snapshot, get_price_history
-from src.collectors.news import get_news
+from src.collectors.market import get_price_history
 from src.config import DEFAULT_MARKET, MANUAL_REFRESH_COOLDOWN_SECONDS, REFRESH_MINUTES
-from src.database import add_favorite, list_favorites, load_market_snapshot, load_saved_articles, remove_favorite, save_articles, save_market_snapshot
+from src.database import (
+    add_favorite,
+    list_favorites,
+    load_collection_status,
+    load_market_snapshot,
+    load_saved_articles,
+    remove_favorite,
+)
+from src.services.refresh import refresh_symbol
 
 st.set_page_config(page_title="뉴스·주식 레이더", page_icon="📡", layout="wide")
 
@@ -18,11 +25,7 @@ def format_time(value: datetime | None) -> str:
 
 @st.cache_data(ttl=REFRESH_MINUTES * 60, show_spinner=False)
 def load_data(symbol: str, market: str):
-    snapshot, market_error, market_status = get_market_snapshot(symbol, market)
-    if market_status == "invalid":
-        return snapshot, [], market_error, market_status, "유효하지 않은 종목 코드입니다"
-    articles, news_error = get_news(symbol, market)
-    return snapshot, articles, market_error, market_status, news_error
+    return refresh_symbol(symbol, market)
 
 
 @st.cache_data(ttl=REFRESH_MINUTES * 60, show_spinner=False)
@@ -80,6 +83,7 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.caption(f"자동 캐시 주기: {REFRESH_MINUTES}분")
+    st.caption(f"데스크톱 실행 시 관심 종목 자동 수집: {REFRESH_MINUTES}분")
     st.caption("※ 데이터는 참고용이며 투자 추천이 아닙니다.")
     if message := st.session_state.pop("favorite_message", None):
         st.success(message)
@@ -106,22 +110,18 @@ using_saved_articles = False
 if market_status == "invalid":
     st.error(f"{symbol.strip().upper()}은(는) 유효하지 않은 종목 코드입니다. 시장 선택과 티커를 확인해 주세요.")
     st.stop()
-if not market_error:
-    save_market_snapshot(snapshot.symbol, market, snapshot)
-else:
-    saved_snapshot = load_market_snapshot(snapshot.symbol, market)
-    if saved_snapshot:
-        snapshot = saved_snapshot
-        using_saved_snapshot = True
-        st.info("주가 API가 응답하지 않아 마지막 성공 데이터를 표시합니다.")
-if not news_error:
-    save_articles(snapshot.symbol, articles)
-else:
-    saved_articles = load_saved_articles(snapshot.symbol)
-    if saved_articles:
-        articles = saved_articles
-        using_saved_articles = True
-        st.info("뉴스 RSS가 응답하지 않아 마지막 성공 뉴스를 표시합니다.")
+saved_snapshot = load_market_snapshot(snapshot.symbol, market)
+if saved_snapshot:
+    snapshot = saved_snapshot
+    using_saved_snapshot = bool(market_error)
+saved_articles = load_saved_articles(snapshot.symbol)
+if saved_articles:
+    articles = saved_articles
+    using_saved_articles = bool(news_error)
+if using_saved_snapshot:
+    st.info("주가 API가 응답하지 않아 마지막 성공 데이터를 표시합니다.")
+if using_saved_articles:
+    st.info("뉴스 RSS가 응답하지 않아 마지막 성공 뉴스를 표시합니다.")
 
 start_date, end_date = (date_range if len(date_range) == 2 else (date.today() - timedelta(days=30), date.today()))
 keyword = keyword_query.strip().lower()
@@ -169,10 +169,20 @@ with right:
     else:
         st.caption("키워드가 없습니다.")
     st.subheader("수집 상태")
-    if news_error:
-        st.error("뉴스 수집 실패")
-    else:
-        st.success(f"뉴스 {len(filtered_articles)}건 표시")
+    market_collection_status = load_collection_status("market", snapshot.symbol, market)
+    news_collection_status = load_collection_status("news", snapshot.symbol, market)
+    if market_collection_status and market_collection_status.status != "ok":
+        st.error(f"주가 수집 실패 · {format_time(market_collection_status.last_attempt_at)}")
+        if market_collection_status.last_success_at:
+            st.caption(f"주가 마지막 성공: {format_time(market_collection_status.last_success_at)}")
+    elif market_collection_status:
+        st.success(f"주가 수집 성공 · {format_time(market_collection_status.last_success_at)}")
+    if news_collection_status and news_collection_status.status != "ok":
+        st.error(f"뉴스 수집 실패 · {format_time(news_collection_status.last_attempt_at)}")
+        if news_collection_status.last_success_at:
+            st.caption(f"뉴스 마지막 성공: {format_time(news_collection_status.last_success_at)}")
+    elif news_collection_status:
+        st.success(f"뉴스 {len(filtered_articles)}건 표시 · {format_time(news_collection_status.last_success_at)}")
     st.caption(f"조회 기준: {datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M')}")
 
 if show_chart:

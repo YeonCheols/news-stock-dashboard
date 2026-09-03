@@ -41,3 +41,38 @@ def test_saved_articles_are_loaded_newest_first():
     database.save_articles("aapl", [older, newer])
 
     assert [article.title for article in database.load_saved_articles("AAPL")] == ["Newer", "Older"]
+
+
+def test_cleanup_old_articles_keeps_recent_and_undated_articles():
+    now = datetime.now(timezone.utc)
+    old = NewsArticle("Old", "Source", "https://example.com/old", now - timedelta(days=91))
+    recent = NewsArticle("Recent", "Source", "https://example.com/recent", now - timedelta(days=1))
+    undated = NewsArticle("Undated", "Source", "https://example.com/undated")
+    database.save_articles("AAPL", [old, recent, undated])
+
+    assert database.cleanup_old_articles(90) == 1
+    assert [article.title for article in database.load_saved_articles("AAPL")] == ["Recent", "Undated"]
+
+
+def test_collection_status_keeps_last_success_when_the_latest_attempt_fails():
+    database.record_collection_status("news", "aapl", "US", "ok")
+    successful_status = database.load_collection_status("news", "AAPL", "US")
+
+    database.record_collection_status("news", "AAPL", "US", "unavailable", "network unavailable")
+    failed_status = database.load_collection_status("news", "AAPL", "US")
+
+    assert successful_status is not None
+    assert failed_status is not None
+    assert failed_status.status == "unavailable"
+    assert failed_status.last_error == "network unavailable"
+    assert failed_status.last_success_at == successful_status.last_success_at
+    assert failed_status.last_attempt_at >= successful_status.last_attempt_at
+
+
+def test_connections_use_wal_mode_and_a_busy_timeout():
+    with database._connect() as connection:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+
+    assert journal_mode.lower() == "wal"
+    assert busy_timeout == 5000

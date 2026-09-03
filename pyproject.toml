@@ -15,8 +15,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
-desktop = ["pywebview>=5.3", "pyinstaller>=6.0"]
+test = ["apscheduler>=3.11,<4", "pytest>=8.0"]
+desktop = ["apscheduler>=3.11,<4", "pywebview>=5.3", "pyinstaller>=6.0"]
 
 [project.scripts]
 news-stock-radar = "desktop:main"

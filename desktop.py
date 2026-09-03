@@ -10,6 +10,8 @@ from urllib.request import urlopen
 
 import webview
 
+from src.config import SCHEDULED_COLLECTION_ENABLED
+from src.services.scheduler import create_refresh_scheduler
 
 APP_ROOT = Path(__file__).resolve().parent
 HOST = "127.0.0.1"
@@ -51,6 +53,9 @@ def main() -> None:
         "--browser.gatherUsageStats",
         "false",
     ]
+    scheduler = create_refresh_scheduler() if SCHEDULED_COLLECTION_ENABLED else None
+    if scheduler:
+        scheduler.start()
     server = subprocess.Popen(command, cwd=APP_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     url = f"http://{HOST}:{PORT}"
     try:
@@ -58,6 +63,8 @@ def main() -> None:
         webview.create_window("뉴스·주식 레이더", url, width=1280, height=820, min_size=(960, 640))
         webview.start()
     finally:
+        if scheduler and scheduler.running:
+            scheduler.shutdown(wait=False)
         if server.poll() is None:
             server.terminate()
             try:

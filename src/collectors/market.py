@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from src.models import MarketSnapshot
 from src.collectors.instruments import resolve_company_name
 from src.collectors.instruments import instrument_exists
+from src.collectors.retry import run_with_retries
+from src.config import DATA_REQUEST_TIMEOUT_SECONDS
 
 
 def _sample(symbol: str, market: str) -> MarketSnapshot:
@@ -17,8 +19,12 @@ def get_market_snapshot(symbol: str, market: str) -> tuple[MarketSnapshot, str |
     try:
         import yfinance as yf
 
-        ticker = yf.Ticker(f"{normalized}.KS" if market == "KR" and normalized.isdigit() else normalized)
-        history = ticker.history(period="5d", auto_adjust=False)
+        ticker_symbol = f"{normalized}.KS" if market == "KR" and normalized.isdigit() else normalized
+
+        def load_history():
+            return yf.Ticker(ticker_symbol).history(period="5d", auto_adjust=False, timeout=DATA_REQUEST_TIMEOUT_SECONDS)
+
+        history = run_with_retries(load_history)
         if history.empty:
             if instrument_exists(normalized, market) is False:
                 return _sample(normalized, market), "유효하지 않은 종목 코드입니다", "invalid"
@@ -42,8 +48,12 @@ def get_price_history(symbol: str, market: str):
     """Return a daily close series for the optional dashboard chart."""
     import yfinance as yf
 
-    ticker = yf.Ticker(f"{symbol}.KS" if market == "KR" and symbol.isdigit() else symbol)
-    history = ticker.history(period="1mo", auto_adjust=False)
+    ticker_symbol = f"{symbol}.KS" if market == "KR" and symbol.isdigit() else symbol
+
+    def load_history():
+        return yf.Ticker(ticker_symbol).history(period="1mo", auto_adjust=False, timeout=DATA_REQUEST_TIMEOUT_SECONDS)
+
+    history = run_with_retries(load_history)
     if history.empty or "Close" not in history:
         raise ValueError("차트용 가격 데이터가 없습니다")
     close = history["Close"]
