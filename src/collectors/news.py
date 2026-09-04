@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 from src.models import NewsArticle
 from src.collectors.retry import run_with_retries
 from src.config import DATA_REQUEST_TIMEOUT_SECONDS
+from src.services.keywords import extract_keywords
 
 
 def _sample(symbol: str) -> list[NewsArticle]:
@@ -41,7 +42,8 @@ def get_news(symbol: str, market: str) -> tuple[list[NewsArticle], str | None]:
             if published_parsed := entry.get("published_parsed"):
                 published = datetime(*published_parsed[:6], tzinfo=timezone.utc)
             source = entry.get("source", {}).get("title", "Google News")
-            articles.append(NewsArticle(title, source, url, published, _clean(entry.get("summary", "")), [symbol]))
+            summary = _clean(entry.get("summary", ""))
+            articles.append(NewsArticle(title, source, url, published, summary, extract_keywords(title, summary)))
         oldest = datetime.min.replace(tzinfo=timezone.utc)
         articles.sort(key=lambda article: article.published_at or oldest, reverse=True)
         return articles[:10], None if articles else "RSS 응답에 뉴스가 없습니다"

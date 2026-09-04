@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -34,6 +35,30 @@ def is_port_available(host: str, port: int) -> bool:
         return sock.connect_ex((host, port)) != 0
 
 
+def stop_server(server: subprocess.Popen) -> None:
+    """Stop Streamlit and any child processes it spawned."""
+    if server.poll() is not None:
+        return
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(server.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            return
+    else:
+        server.terminate()
+    try:
+        server.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        if os.name == "posix":
+            try:
+                os.killpg(os.getpgid(server.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                return
+        else:
+            server.kill()
+        server.wait(timeout=5)
+
+
 def main() -> None:
     if not is_port_available(HOST, PORT):
         raise RuntimeError(f"포트 {PORT}가 이미 사용 중입니다. RADAR_PORT 환경변수로 다른 포트를 지정하세요.")
@@ -56,7 +81,8 @@ def main() -> None:
     scheduler = create_refresh_scheduler() if SCHEDULED_COLLECTION_ENABLED else None
     if scheduler:
         scheduler.start()
-    server = subprocess.Popen(command, cwd=APP_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    popen_options = {"start_new_session": True} if os.name == "posix" else {}
+    server = subprocess.Popen(command, cwd=APP_ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, **popen_options)
     url = f"http://{HOST}:{PORT}"
     try:
         wait_for_server(url)
@@ -65,12 +91,7 @@ def main() -> None:
     finally:
         if scheduler and scheduler.running:
             scheduler.shutdown(wait=False)
-        if server.poll() is None:
-            server.terminate()
-            try:
-                server.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                server.kill()
+        stop_server(server)
 
 
 if __name__ == "__main__":

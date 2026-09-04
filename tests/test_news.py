@@ -42,6 +42,7 @@ def test_news_cleans_deduplicates_and_sorts_entries(monkeypatch):
     assert [article.title for article in articles] == ["Newer & better", "Older news"]
     assert articles[0].source == "Google News"
     assert articles[1].summary == "Older summary"
+    assert articles[0].keywords == ["newer", "better", "summary"]
 
 
 def test_news_returns_sample_when_rss_request_fails(monkeypatch):

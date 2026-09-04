@@ -13,6 +13,7 @@ from src.database import (
     load_market_snapshot,
     load_saved_articles,
     remove_favorite,
+    set_article_flags,
 )
 from src.services.refresh import refresh_symbol
 
@@ -61,15 +62,15 @@ with st.sidebar:
     symbol = selected_symbol if favorite_selected else typed_symbol
     market = selected_market if favorite_selected else typed_market
     normalized_symbol = symbol.strip().upper()
-    if add_col.button("관심 추가", use_container_width=True, disabled=not normalized_symbol):
+    if add_col.button("관심 추가", width="stretch", disabled=not normalized_symbol):
         add_favorite(normalized_symbol, market)
         st.session_state["favorite_message"] = f"{normalized_symbol} ({market}) 종목을 관심 목록에 추가했습니다."
         st.rerun()
-    if remove_col.button("관심 삭제", use_container_width=True, disabled=not normalized_symbol):
+    if remove_col.button("관심 삭제", width="stretch", disabled=not normalized_symbol):
         remove_favorite(normalized_symbol)
         st.session_state["favorite_message"] = f"{normalized_symbol} 종목을 관심 목록에서 삭제했습니다."
         st.rerun()
-    if st.button("데이터 새로고침", use_container_width=True):
+    if st.button("데이터 새로고침", width="stretch"):
         refresh_key = f"{normalized_symbol}:{market}"
         now = datetime.now(timezone.utc).timestamp()
         last_refresh = st.session_state.get("last_manual_refresh", {}).get(refresh_key, 0)
@@ -118,6 +119,14 @@ saved_articles = load_saved_articles(snapshot.symbol)
 if saved_articles:
     articles = saved_articles
     using_saved_articles = bool(news_error)
+
+with st.sidebar:
+    source_options = sorted({article.source for article in articles if article.source})
+    source_filter = st.pills("뉴스 출처", source_options, selection_mode="multi", default=source_options, width="stretch")
+    status_filter = st.pills(
+        "뉴스 상태", ["읽지 않음", "중요"], selection_mode="multi",
+        help="선택한 상태를 모두 만족하는 뉴스만 표시합니다.", width="stretch",
+    )
 if using_saved_snapshot:
     st.info("주가 API가 응답하지 않아 마지막 성공 데이터를 표시합니다.")
 if using_saved_articles:
@@ -130,6 +139,9 @@ filtered_articles = [
     for article in articles
     if (not article.published_at or start_date <= article.published_at.astimezone().date() <= end_date)
     and (not keyword or keyword in f"{article.title} {article.summary}".lower())
+    and (not source_filter or article.source in source_filter)
+    and ("읽지 않음" not in status_filter or not article.is_read)
+    and ("중요" not in status_filter or article.is_important)
 ]
 
 if market_error:
@@ -153,10 +165,19 @@ with left:
         st.info("선택한 조건에 맞는 뉴스가 없습니다.")
     for article in filtered_articles[:10]:
         with st.container(border=True):
-            st.markdown(f"**[{article.title}]({article.url})**")
+            markers = " · ".join(marker for marker, active in (("중요", article.is_important), ("읽음", article.is_read)) if active)
+            title_suffix = f" · {markers}" if markers else ""
+            st.markdown(f"**[{article.title}]({article.url})**{title_suffix}")
             st.caption(f"{article.source} · {format_time(article.published_at)}")
             if article.summary:
                 st.write(article.summary)
+            action_col, important_col = st.columns(2)
+            if action_col.button("읽지 않음으로 표시" if article.is_read else "읽음으로 표시", key=f"read:{article.url}"):
+                set_article_flags(article.url, is_read=not article.is_read)
+                st.rerun()
+            if important_col.button("중요 해제" if article.is_important else "중요 표시", key=f"important:{article.url}"):
+                set_article_flags(article.url, is_important=not article.is_important)
+                st.rerun()
 with right:
     st.subheader("주요 키워드")
     keywords = {}

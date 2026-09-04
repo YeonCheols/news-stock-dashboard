@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import shutil
@@ -50,8 +51,17 @@ def _connect() -> sqlite3.Connection:
         "status TEXT NOT NULL, last_attempt_at TEXT NOT NULL, last_success_at TEXT, last_error TEXT, "
         "PRIMARY KEY(source, symbol, market))"
     )
+    _add_column_if_missing(connection, "articles", "keywords", "TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(connection, "articles", "is_read", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(connection, "articles", "is_important", "INTEGER NOT NULL DEFAULT 0")
     connection.commit()
     return connection
+
+
+def _add_column_if_missing(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def list_favorites() -> list[tuple[str, str]]:
@@ -74,8 +84,14 @@ def remove_favorite(symbol: str) -> None:
 def save_articles(symbol: str, articles: list[NewsArticle]) -> None:
     with _connect() as connection:
         connection.executemany(
-            "INSERT OR REPLACE INTO articles(url, title, source, published_at, summary, symbol) VALUES (?, ?, ?, ?, ?, ?)",
-            [(a.url, a.title, a.source, a.published_at.isoformat() if a.published_at else None, a.summary, symbol.upper()) for a in articles],
+            "INSERT INTO articles(url, title, source, published_at, summary, symbol, keywords, is_read, is_important) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(url) DO UPDATE SET title=excluded.title, source=excluded.source, "
+            "published_at=excluded.published_at, summary=excluded.summary, symbol=excluded.symbol, keywords=excluded.keywords",
+            [(
+                a.url, a.title, a.source, a.published_at.isoformat() if a.published_at else None, a.summary,
+                symbol.upper(), json.dumps(a.keywords, ensure_ascii=False), int(a.is_read), int(a.is_important),
+            ) for a in articles],
         )
         connection.commit()
 
@@ -114,11 +130,38 @@ def load_market_snapshot(symbol: str, market: str) -> MarketSnapshot | None:
 def load_saved_articles(symbol: str) -> list[NewsArticle]:
     with _connect() as connection:
         rows = connection.execute(
-            "SELECT title, source, url, published_at, summary FROM articles WHERE symbol = ? "
+            "SELECT title, source, url, published_at, summary, keywords, is_read, is_important FROM articles WHERE symbol = ? "
             "ORDER BY published_at DESC LIMIT 10",
             (symbol.upper(),),
         ).fetchall()
-    return [NewsArticle(title, source or "알 수 없음", url, datetime.fromisoformat(published) if published else None, summary or "", [symbol]) for title, source, url, published, summary in rows]
+    articles = []
+    for title, source, url, published, summary, keywords, is_read, is_important in rows:
+        try:
+            parsed_keywords = json.loads(keywords or "[]")
+        except json.JSONDecodeError:
+            parsed_keywords = []
+        articles.append(NewsArticle(
+            title, source or "알 수 없음", url, datetime.fromisoformat(published) if published else None,
+            summary or "", parsed_keywords, bool(is_read), bool(is_important),
+        ))
+    return articles
+
+
+def set_article_flags(url: str, *, is_read: bool | None = None, is_important: bool | None = None) -> None:
+    """Update article flags without overwriting the other flag."""
+    updates, values = [], []
+    if is_read is not None:
+        updates.append("is_read = ?")
+        values.append(int(is_read))
+    if is_important is not None:
+        updates.append("is_important = ?")
+        values.append(int(is_important))
+    if not updates:
+        return
+    values.append(url)
+    with _connect() as connection:
+        connection.execute(f"UPDATE articles SET {', '.join(updates)} WHERE url = ?", values)
+        connection.commit()
 
 
 def record_collection_status(source: str, symbol: str, market: str, status: str, error: str | None = None) -> None:

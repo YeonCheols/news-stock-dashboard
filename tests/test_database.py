@@ -76,3 +76,18 @@ def test_connections_use_wal_mode_and_a_busy_timeout():
 
     assert journal_mode.lower() == "wal"
     assert busy_timeout == 5000
+
+
+def test_article_flags_and_keywords_survive_refresh_upsert():
+    article = NewsArticle("A title", "Source", "https://example.com/article", keywords=["market"])
+    database.save_articles("AAPL", [article])
+    database.set_article_flags(article.url, is_read=True, is_important=True)
+
+    refreshed = NewsArticle("Updated title", "Source", article.url, keywords=["updated"])
+    database.save_articles("AAPL", [refreshed])
+    loaded = database.load_saved_articles("AAPL")[0]
+
+    assert loaded.title == "Updated title"
+    assert loaded.keywords == ["updated"]
+    assert loaded.is_read is True
+    assert loaded.is_important is True

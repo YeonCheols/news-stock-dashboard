@@ -31,6 +31,8 @@ class NewsArticle:
     published_at: datetime | None = None
     summary: str = ""
     keywords: list[str] = field(default_factory=list)
+    is_read: bool = False
+    is_important: bool = False
 
 
 @dataclass
