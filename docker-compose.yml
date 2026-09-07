@@ -4,6 +4,32 @@ services:
       context: .
       target: production
     ports:
+      - "8502:8501"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      RADAR_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+      - .:/app:ro
+    command:
+      - streamlit
+      - run
+      - plan_dashboard.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      target: production
+    profiles:
+      - app
+    ports:
       - "8501:8501"
     env_file:
       - path: .env

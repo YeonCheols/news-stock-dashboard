@@ -12,4 +12,3 @@ dist
 data/*.db
 data/*.db-*
 DEPLOYMENT_GUIDE.md
-PROJECT_PLAN.md

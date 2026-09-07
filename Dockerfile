@@ -7,6 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# The generated plan dashboard reads origin/master with git at runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create a non-root runtime user and the persistent SQLite directory.
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/data \
@@ -16,7 +21,8 @@ COPY pyproject.toml requirements.txt ./
 RUN pip install --upgrade pip \
     && pip install .
 
-COPY app.py desktop.py ./
+COPY app.py desktop.py plan_dashboard*.py ./
+COPY PROJECT_PLAN.md ./
 COPY src ./src
 
 RUN chown -R appuser:appuser /app

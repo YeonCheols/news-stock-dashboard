@@ -6,4 +6,9 @@ build/
 .env
 data/*.db
 data/*.db-*
-.agents/
+.agents/*
+!.agents/skills/
+!.agents/skills/plan-master-review/
+!.agents/skills/plan-master-review/SKILL.md
+.agents/.DS_Store
+plan_dashboard_generated.py
