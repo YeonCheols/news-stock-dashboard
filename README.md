@@ -11,6 +11,26 @@ pip install -e .
 streamlit run app.py
 ```
 
+## Docker로 실행
+
+Docker와 Docker Compose가 설치되어 있다면 다음 명령으로 실행합니다.
+
+```bash
+docker compose up --build
+```
+
+브라우저에서 `http://localhost:8501`을 엽니다. SQLite 데이터는 프로젝트의 `data/` 디렉터리에 저장되어 컨테이너를 다시 만들어도 유지됩니다. 환경 설정이 필요하면 `.env` 파일을 프로젝트 루트에 만들고 실행합니다.
+
+```bash
+docker compose down
+```
+
+Docker 이미지 안에서 테스트를 실행하려면 다음 명령을 사용합니다.
+
+```bash
+docker compose --profile test run --rm test
+```
+
 왼쪽 입력창에서 미국 티커(예: `AAPL`) 또는 한국 종목 코드를 입력합니다. 외부 API가 실패하면 상태 메시지와 함께 샘플 데이터가 표시됩니다.
 
 기업명은 FinanceDataReader의 시장별 종목 목록에서 가져오며, 가져온 목록은 SQLite에 24시간 동안 캐시합니다. 새로운 종목도 소스코드 수정 없이 검색할 수 있습니다.

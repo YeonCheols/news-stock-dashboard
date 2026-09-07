@@ -1,0 +1,22 @@
+services:
+  dashboard:
+    build:
+      context: .
+      target: production
+    ports:
+      - "8501:8501"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      RADAR_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  test:
+    build:
+      context: .
+      target: test
+    profiles:
+      - test
