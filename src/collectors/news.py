@@ -18,6 +18,12 @@ def _clean(value: str) -> str:
     return re.sub(r"<[^>]+>", "", unescape(value or "")).strip()
 
 
+def _normalize_title(value: str) -> str:
+    """Normalize title variants commonly produced by syndicated RSS feeds."""
+    cleaned = _clean(value).casefold()
+    return re.sub(r"[\W_]+", " ", cleaned, flags=re.UNICODE).strip()
+
+
 def get_news(symbol: str, market: str) -> tuple[list[NewsArticle], str | None]:
     try:
         import feedparser
@@ -32,20 +38,27 @@ def get_news(symbol: str, market: str) -> tuple[list[NewsArticle], str | None]:
         feed = feedparser.parse(run_with_retries(fetch_rss))
         if not feed.entries:
             raise ValueError("RSS 응답에 뉴스가 없습니다")
-        articles, seen = [], set()
+        candidates = []
         for entry in feed.entries:
             url, title = entry.get("link", ""), _clean(entry.get("title", ""))
-            if not url or not title or url in seen:
+            if not url or not title:
                 continue
-            seen.add(url)
             published = None
             if published_parsed := entry.get("published_parsed"):
                 published = datetime(*published_parsed[:6], tzinfo=timezone.utc)
             source = entry.get("source", {}).get("title", "Google News")
             summary = _clean(entry.get("summary", ""))
-            articles.append(NewsArticle(title, source, url, published, summary, extract_keywords(title, summary)))
+            candidates.append(NewsArticle(title, source, url, published, summary, extract_keywords(title, summary)))
         oldest = datetime.min.replace(tzinfo=timezone.utc)
-        articles.sort(key=lambda article: article.published_at or oldest, reverse=True)
+        candidates.sort(key=lambda article: article.published_at or oldest, reverse=True)
+        articles, seen_urls, seen_titles = [], set(), set()
+        for article in candidates:
+            normalized_title = _normalize_title(article.title)
+            if article.url in seen_urls or normalized_title in seen_titles:
+                continue
+            seen_urls.add(article.url)
+            seen_titles.add(normalized_title)
+            articles.append(article)
         return articles[:10], None if articles else "RSS 응답에 뉴스가 없습니다"
     except Exception as exc:
         return _sample(symbol), str(exc)

@@ -45,6 +45,36 @@ def test_news_cleans_deduplicates_and_sorts_entries(monkeypatch):
     assert articles[0].keywords == ["newer", "better", "summary"]
 
 
+def test_news_deduplicates_title_variants_and_keeps_newest_article(monkeypatch):
+    entries = [
+        {
+            "link": "https://example.com/older-copy",
+            "title": "<b>Market Update: AI</b>",
+            "published_parsed": (2026, 9, 1, 10, 0, 0, 0, 0, 0),
+        },
+        {
+            "link": "https://example.com/newer-copy",
+            "title": "market update ai",
+            "published_parsed": (2026, 9, 2, 10, 0, 0, 0, 0, 0),
+        },
+        {
+            "link": "https://example.com/unique",
+            "title": "A separate story",
+            "published_parsed": (2026, 9, 1, 9, 0, 0, 0, 0, 0),
+        },
+    ]
+    monkeypatch.setitem(sys.modules, "feedparser", SimpleNamespace(parse=lambda payload: SimpleNamespace(entries=entries)))
+    monkeypatch.setattr(news, "urlopen", lambda request, timeout: FakeResponse())
+
+    articles, error = news.get_news("AAPL", "US")
+
+    assert error is None
+    assert [article.url for article in articles] == [
+        "https://example.com/newer-copy",
+        "https://example.com/unique",
+    ]
+
+
 def test_news_returns_sample_when_rss_request_fails(monkeypatch):
     monkeypatch.setitem(sys.modules, "feedparser", SimpleNamespace(parse=lambda payload: None))
     monkeypatch.setattr(retry, "DATA_REQUEST_MAX_RETRIES", 0)

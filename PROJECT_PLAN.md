@@ -44,57 +44,68 @@
 - 실적 발표·배당·금리 일정 캘린더
 - 뉴스 요약 및 종목 간 연관성 분석
 
-## 5. 추천 기술 구성
+## 5. 현재 기술 구성과 향후 확장 기준
 
 | 영역 | 선택 기술 |
 |---|---|
 | 언어 | Python 3.11 이상 |
-| 화면 | Streamlit |
-| 주가 데이터 | yfinance 또는 신뢰할 수 있는 공식·공개 API |
-| 뉴스 | RSS 우선, 필요할 때 뉴스 API 추가 |
-| 저장소 | SQLite + SQLAlchemy |
-| 스케줄링 | APScheduler |
-| 데이터 검증 | Pydantic |
+| 화면 | Streamlit 1.40 이상 |
+| 주가 데이터 | yfinance, 종목 목록·기업명은 FinanceDataReader |
+| 뉴스 | `urllib.request`와 feedparser를 이용한 Google News RSS |
+| 저장소 | Python 표준 `sqlite3` + SQLite 파일 + dataclass 모델 |
+| 스케줄링 | APScheduler (데스크톱 실행 시 관심 종목 주기 수집) |
+| 데이터 검증 | 입력 정규화, 종목 목록 확인, 수집기 오류 상태 반환 |
 | 테스트 | pytest |
-| 패키지 관리 | uv 또는 venv + pip |
+| 패키지 관리 | `pyproject.toml`/setuptools + venv와 pip |
+| 데스크톱 | pywebview, 선택적 PyInstaller 패키징 |
+| 설정 | python-dotenv와 환경변수 |
 
-주가·뉴스 제공 서비스의 이용약관과 호출 제한을 확인한다. API 키는 코드에 직접 저장하지 않고 `.env`로 관리한다.
+현재 구현은 SQLAlchemy와 Pydantic을 사용하지 않으며, 별도 API 키 없이 공개 데이터와 RSS를 사용한다. 향후 데이터 모델이 복잡해질 때만 ORM·스키마 검증 도입을 검토한다. 주가·뉴스 제공 서비스의 이용약관과 호출 제한을 확인하고, 외부 API 키가 추가될 경우 코드에 저장하지 않고 환경변수로 관리한다.
 
 ## 6. 예상 폴더 구조
 
 ```text
-news-stock-radar/
+news-stock-dashboard/
 ├── app.py
 ├── pyproject.toml
-├── .env.example
+├── requirements.txt
 ├── README.md
+├── Dockerfile
+├── docker-compose.yml
+├── desktop.py
 ├── src/
 │   ├── config.py
 │   ├── database.py
 │   ├── models.py
 │   ├── collectors/
+│   │   ├── instruments.py
 │   │   ├── market.py
-│   │   └── news.py
+│   │   ├── news.py
+│   │   └── retry.py
 │   ├── services/
-│   │   ├── ranking.py
-│   │   ├── sentiment.py
-│   │   └── summarizer.py
-│   └── ui/
-│       ├── dashboard.py
-│       └── components.py
+│   │   ├── keywords.py
+│   │   ├── refresh.py
+│   │   └── scheduler.py
 └── tests/
+    ├── test_database.py
+    ├── test_desktop.py
+    ├── test_keywords.py
+    ├── test_market.py
     ├── test_news.py
-    └── test_ranking.py
+    ├── test_refresh.py
+    ├── test_retry.py
+    └── test_scheduler.py
 ```
+
+감성·랭킹·요약 기능을 구현할 때는 `src/services/`에 모듈을 추가하고, 별도 UI 계층이 필요해질 때만 `src/ui/`를 도입한다.
 
 ## 7. 주요 데이터 모델
 
 ### Stock
 
+- 현재 별도 `Stock` dataclass는 없으며 SQLite `favorites` 테이블로 관리한다.
 - `symbol`: 종목 코드
-- `name`: 종목명
-- `market`: KOSPI, NASDAQ 등
-- `is_favorite`: 관심 종목 여부
+- `market`: `KR` 또는 `US`
 
 ### NewsArticle
 
@@ -102,10 +113,12 @@ news-stock-radar/
 - `source`: 언론사 또는 피드명
 - `url`: 원문 주소
 - `published_at`: 발행 시각
-- `related_symbols`: 관련 종목
 - `keywords`: 주요 키워드
-- `sentiment`: positive, negative, neutral
+- `summary`: RSS 요약
 - `is_read`: 읽음 여부
+- `is_important`: 중요 뉴스 여부
+
+`related_symbols`와 `sentiment`는 분석 기능 구현 시 추가할 예정인 필드다.
 
 ### MarketSnapshot
 
@@ -114,16 +127,19 @@ news-stock-radar/
 - `change_rate`
 - `volume`
 - `captured_at`
+- `currency`: `KRW` 또는 `USD`
 
 ## 8. 화면 설계
 
-### 대시보드
+### 대시보드 (현재 구현)
 
-- 상단: 마지막 수집 시각, 새로고침 버튼
-- 왼쪽: 관심 종목 목록과 등락률
-- 중앙: 선택 종목의 가격 카드와 최근 뉴스
-- 오른쪽: 주요 키워드, 뉴스 분위기, 급변 알림
-- 하단: 전체 뉴스 타임라인
+- 사이드바: 관심 종목 선택·직접 입력·추가·삭제, 새로고침, 뉴스 필터
+- 상단: 선택 종목의 현재가·등락률·거래량·데이터 기준 시각
+- 중앙: 최근 뉴스 10개, 원문 링크, 읽음·중요 상태 변경
+- 오른쪽: 키워드 빈도와 주가·뉴스 수집 상태
+- 선택 기능: 최근 1개월 주가 차트
+
+감성, 급변 알림, 전체 뉴스 타임라인은 향후 추가 화면이다.
 
 ### 필터
 
@@ -148,7 +164,7 @@ news-stock-radar/
 
 - 주가 수집 모듈 구현
 - RSS 수집 모듈 구현
-- URL 기준 중복 제거
+- URL 및 정규화 제목 기준 중복 제거
 - 수집 실패와 API 제한을 사용자에게 표시
 
 완료 기준: 관심 종목의 실제 가격과 뉴스가 저장되고 다시 실행해도 유지된다.
@@ -202,9 +218,9 @@ news-stock-radar/
 ## 10. 첫 실행 예시
 
 ```bash
-uv venv
+python -m venv .venv
 source .venv/bin/activate
-uv pip install streamlit yfinance feedparser sqlalchemy pydantic python-dotenv pytest
+pip install -e '.[test]'
 streamlit run app.py
 ```
 
@@ -212,12 +228,17 @@ Windows에서는 가상환경 활성화 명령만 운영체제에 맞게 바꾼�
 
 ## 11. 초기 설정값
 
-`.env`에는 다음 정도만 둔다.
+`.env`에는 다음과 같은 선택 설정을 둘 수 있다. 데이터베이스는 `RADAR_DATA_DIR` 아래의 `radar.db`로 생성된다.
 
 ```text
-DATABASE_URL=sqlite:///./data/radar.db
+RADAR_DATA_DIR=./data
 NEWS_REFRESH_MINUTES=30
 DEFAULT_MARKET=US
+DATA_REQUEST_TIMEOUT_SECONDS=10
+DATA_REQUEST_MAX_RETRIES=2
+DATA_REQUEST_RETRY_DELAY_SECONDS=1
+DATA_RETENTION_DAYS=90
+SCHEDULED_COLLECTION_ENABLED=true
 ```
 
 외부 요약·감성 API를 붙일 때만 별도의 API 키를 추가한다.
