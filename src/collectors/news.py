@@ -8,6 +8,7 @@ from src.models import NewsArticle
 from src.collectors.retry import run_with_retries
 from src.config import DATA_REQUEST_TIMEOUT_SECONDS
 from src.services.keywords import extract_keywords
+from src.services.sentiment import classify_sentiment
 
 
 def _sample(symbol: str) -> list[NewsArticle]:
@@ -48,7 +49,16 @@ def get_news(symbol: str, market: str) -> tuple[list[NewsArticle], str | None]:
                 published = datetime(*published_parsed[:6], tzinfo=timezone.utc)
             source = entry.get("source", {}).get("title", "Google News")
             summary = _clean(entry.get("summary", ""))
-            candidates.append(NewsArticle(title, source, url, published, summary, extract_keywords(title, summary)))
+            candidates.append(NewsArticle(
+                title,
+                source,
+                url,
+                published,
+                summary,
+                extract_keywords(title, summary),
+                related_symbols=[symbol.upper()],
+                sentiment=classify_sentiment(title, summary),
+            ))
         oldest = datetime.min.replace(tzinfo=timezone.utc)
         candidates.sort(key=lambda article: article.published_at or oldest, reverse=True)
         articles, seen_urls, seen_titles = [], set(), set()

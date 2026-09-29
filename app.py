@@ -17,6 +17,9 @@ from src.database import (
 )
 from src.services.refresh import refresh_symbol
 
+
+SENTIMENT_LABELS = {"positive": "긍정", "negative": "부정", "neutral": "중립", None: "미분류"}
+
 st.set_page_config(page_title="뉴스·주식 레이더", page_icon="📡", layout="wide")
 
 
@@ -127,6 +130,11 @@ with st.sidebar:
         "뉴스 상태", ["읽지 않음", "중요"], selection_mode="multi",
         help="선택한 상태를 모두 만족하는 뉴스만 표시합니다.", width="stretch",
     )
+    sentiment_filter = st.pills(
+        "뉴스 감성", ["긍정", "부정", "중립", "미분류"], selection_mode="multi",
+        default=["긍정", "부정", "중립", "미분류"],
+        help="선택한 감성의 뉴스만 표시합니다.", width="stretch",
+    )
 if using_saved_snapshot:
     st.info("주가 API가 응답하지 않아 마지막 성공 데이터를 표시합니다.")
 if using_saved_articles:
@@ -142,6 +150,7 @@ filtered_articles = [
     and (not source_filter or article.source in source_filter)
     and ("읽지 않음" not in status_filter or not article.is_read)
     and ("중요" not in status_filter or article.is_important)
+    and (not sentiment_filter or SENTIMENT_LABELS.get(article.sentiment, "미분류") in sentiment_filter)
 ]
 
 if market_error:
@@ -168,7 +177,7 @@ with left:
             markers = " · ".join(marker for marker, active in (("중요", article.is_important), ("읽음", article.is_read)) if active)
             title_suffix = f" · {markers}" if markers else ""
             st.markdown(f"**[{article.title}]({article.url})**{title_suffix}")
-            st.caption(f"{article.source} · {format_time(article.published_at)}")
+            st.caption(f"{article.source} · {format_time(article.published_at)} · 감성: {SENTIMENT_LABELS.get(article.sentiment, '미분류')}")
             if article.summary:
                 st.write(article.summary)
             action_col, important_col = st.columns(2)

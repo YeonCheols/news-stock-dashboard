@@ -91,3 +91,32 @@ def test_article_flags_and_keywords_survive_refresh_upsert():
     assert loaded.keywords == ["updated"]
     assert loaded.is_read is True
     assert loaded.is_important is True
+
+
+def test_article_analysis_fields_round_trip_and_survive_upsert():
+    article = NewsArticle(
+        "A title",
+        "Source",
+        "https://example.com/analysis",
+        related_symbols=["AAPL", "MSFT"],
+        sentiment="neutral",
+    )
+    database.save_articles("AAPL", [article])
+
+    loaded = database.load_saved_articles("AAPL")[0]
+
+    assert loaded.related_symbols == ["AAPL", "MSFT"]
+    assert loaded.sentiment == "neutral"
+
+    refreshed = NewsArticle(
+        "Updated title",
+        "Source",
+        article.url,
+        related_symbols=["AAPL"],
+        sentiment="positive",
+    )
+    database.save_articles("AAPL", [refreshed])
+    loaded = database.load_saved_articles("AAPL")[0]
+
+    assert loaded.related_symbols == ["AAPL"]
+    assert loaded.sentiment == "positive"

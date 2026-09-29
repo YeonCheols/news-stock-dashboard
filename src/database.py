@@ -54,6 +54,8 @@ def _connect() -> sqlite3.Connection:
     _add_column_if_missing(connection, "articles", "keywords", "TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(connection, "articles", "is_read", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(connection, "articles", "is_important", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(connection, "articles", "related_symbols", "TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(connection, "articles", "sentiment", "TEXT")
     connection.commit()
     return connection
 
@@ -84,13 +86,15 @@ def remove_favorite(symbol: str) -> None:
 def save_articles(symbol: str, articles: list[NewsArticle]) -> None:
     with _connect() as connection:
         connection.executemany(
-            "INSERT INTO articles(url, title, source, published_at, summary, symbol, keywords, is_read, is_important) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO articles(url, title, source, published_at, summary, symbol, keywords, is_read, is_important, related_symbols, sentiment) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(url) DO UPDATE SET title=excluded.title, source=excluded.source, "
-            "published_at=excluded.published_at, summary=excluded.summary, symbol=excluded.symbol, keywords=excluded.keywords",
+            "published_at=excluded.published_at, summary=excluded.summary, symbol=excluded.symbol, "
+            "keywords=excluded.keywords, related_symbols=excluded.related_symbols, sentiment=excluded.sentiment",
             [(
                 a.url, a.title, a.source, a.published_at.isoformat() if a.published_at else None, a.summary,
                 symbol.upper(), json.dumps(a.keywords, ensure_ascii=False), int(a.is_read), int(a.is_important),
+                json.dumps(a.related_symbols, ensure_ascii=False), a.sentiment,
             ) for a in articles],
         )
         connection.commit()
@@ -130,19 +134,24 @@ def load_market_snapshot(symbol: str, market: str) -> MarketSnapshot | None:
 def load_saved_articles(symbol: str) -> list[NewsArticle]:
     with _connect() as connection:
         rows = connection.execute(
-            "SELECT title, source, url, published_at, summary, keywords, is_read, is_important FROM articles WHERE symbol = ? "
+            "SELECT title, source, url, published_at, summary, keywords, is_read, is_important, related_symbols, sentiment "
+            "FROM articles WHERE symbol = ? "
             "ORDER BY published_at DESC LIMIT 10",
             (symbol.upper(),),
         ).fetchall()
     articles = []
-    for title, source, url, published, summary, keywords, is_read, is_important in rows:
+    for title, source, url, published, summary, keywords, is_read, is_important, related_symbols, sentiment in rows:
         try:
             parsed_keywords = json.loads(keywords or "[]")
         except json.JSONDecodeError:
             parsed_keywords = []
+        try:
+            parsed_related_symbols = json.loads(related_symbols or "[]")
+        except json.JSONDecodeError:
+            parsed_related_symbols = []
         articles.append(NewsArticle(
             title, source or "알 수 없음", url, datetime.fromisoformat(published) if published else None,
-            summary or "", parsed_keywords, bool(is_read), bool(is_important),
+            summary or "", parsed_keywords, bool(is_read), bool(is_important), parsed_related_symbols, sentiment,
         ))
     return articles
 

@@ -33,6 +33,8 @@ class NewsArticle:
     keywords: list[str] = field(default_factory=list)
     is_read: bool = False
     is_important: bool = False
+    related_symbols: list[str] = field(default_factory=list)
+    sentiment: str | None = None
 
 
 @dataclass

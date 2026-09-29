@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from src.collectors import news
 from src.collectors import retry
+from src.services.sentiment import classify_sentiment
 
 
 class FakeResponse:
@@ -43,6 +44,8 @@ def test_news_cleans_deduplicates_and_sorts_entries(monkeypatch):
     assert articles[0].source == "Google News"
     assert articles[1].summary == "Older summary"
     assert articles[0].keywords == ["newer", "better", "summary"]
+    assert articles[0].related_symbols == ["AAPL"]
+    assert articles[0].sentiment == "positive"
 
 
 def test_news_deduplicates_title_variants_and_keeps_newest_article(monkeypatch):
@@ -73,6 +76,12 @@ def test_news_deduplicates_title_variants_and_keeps_newest_article(monkeypatch):
         "https://example.com/newer-copy",
         "https://example.com/unique",
     ]
+
+
+def test_classify_sentiment_is_conservative_for_korean_and_english():
+    assert classify_sentiment("Strong profit growth") == "positive"
+    assert classify_sentiment("실적 부진과 손실 확대") == "negative"
+    assert classify_sentiment("AAPL announces quarterly results") == "neutral"
 
 
 def test_news_returns_sample_when_rss_request_fails(monkeypatch):
